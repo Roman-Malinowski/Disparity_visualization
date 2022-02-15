@@ -1,15 +1,16 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 import cv2 as cv
 
 
 class SnaptoCursor(object):
-    def __init__(self, ax, x, y, x_ref, disp_range):
+    def __init__(self, ax, x_data, y_data, x_ref, disp_range):
         self.ax = ax
         self.ly = ax.axvline(color='k', alpha=0.2)  # the vert line
         self.marker, = ax.plot([0], [0], marker="o", color="crimson", zorder=3)
-        self.x = x
-        self.y = y
+        self.x_data = x_data
+        self.y_data = y_data
         self.txt = ax.text(0.7, 0.9, '')
         self.disp_range = disp_range
         # x_global is the x cursor position
@@ -19,17 +20,52 @@ class SnaptoCursor(object):
         if not event.inaxes is self.ax: return
         # We round xdata for UX
         x, y = round(event.xdata - 1), event.ydata
-        indx = np.searchsorted(self.x, [x], side='right')[0]
+        indx = np.searchsorted(self.x_data, [x], side='right')[0]
         indx = np.max([0, indx])
         indx = np.min([self.disp_range[1]-self.disp_range[0]-1, indx])
-        x = self.x[indx]
-        y = self.y[indx]
+        x = self.x_data[indx]
+        y = self.y_data[indx]
         self.ly.set_xdata(x)
         self.marker.set_data([x], [y])
         self.txt.set_text('Disp=%1.0f, Cost=%1.2f' % (indx+disparity_range[0], y))
         self.txt.set_position((x, y))
         self.ax.figure.canvas.draw_idle()
         self.x_global = x
+
+
+class FullImage(object):
+    def __init__(self, ax, x, y, img, padd=[0, 0], title=""):
+        self.ax = ax
+        self.x = x
+        self.y = y
+        self.img = img
+        self.padd = padd
+
+        self.ax.imshow(self.img, vmin=0.0, vmax=255.)
+
+        # Create a small patch on the pixel
+        self.ax.add_patch(self.create_rectangle())
+        self.ax.set_title(title)
+        self.ax.set_xticks(ticks=[])
+        self.ax.set_yticks(ticks=[])
+
+    def create_rectangle(self):
+        return patches.Rectangle((self.x, self.y), self.padd[0], self.padd[1], color="r")
+
+    def update_xy_ref(self, event):
+        if event.inaxes is not self.ax: return
+        x, y = event.xdata, event.ydata
+
+        # Changing the x and y coordinates but not allowing them to be in padding areas
+        x = np.min([self.img.shape[1] - 1 - self.padd[1], x])
+        self.x = np.max([self.padd[1], x])
+        y = np.min([self.img.shape[0] - 1 - self.padd[0], y])
+        self.y = np.max([self.padd[0], y])
+
+        # Removing old rectangle
+        self.ax.patches.pop()
+        self.ax.add_patch(self.create_rectangle())
+        self.ax.figure.canvas.draw_idle()
 
 
 class ImageIcon(object):
@@ -42,10 +78,10 @@ class ImageIcon(object):
         self.padd = padd
         self.disp = disp_range
 
-        self.ax.set_title(title)
         # The processed image already has some padding, so we need to take that into account
         self.ax.imshow(self.img[self.x: self.x + 2 * self.padd[1] + 1,
                                 self.y: self.y + 2*self.padd[0] + 1], vmin=0.0, vmax=255.)
+        self.ax.set_title(title)
         self.ax.set_xticks(ticks=[])
         self.ax.set_yticks(ticks=[])
 
@@ -75,10 +111,10 @@ class ImageBand(object):
         self.ly = ax.axvline(color='r', alpha=0.8)
         self.ry = ax.axvline(color='r', alpha=0.8)
 
-        self.ax.set_title(title)
         self.ax.imshow(self.img, vmin=0.0, vmax=255.)
         self.ax.set_xticks(ticks=[])
         self.ax.set_yticks(ticks=[])
+        self.ax.set_title(title)
 
     def mouse_move(self, event):
         if not event.inaxes is self.cursor.ax:return
@@ -86,8 +122,6 @@ class ImageBand(object):
         self.ly.set_xdata(self.cursor.x_global - 0.5)
         self.ry.set_xdata(self.cursor.x_global + 2*self.padd[0] + 0.5)
         self.ax.figure.canvas.draw_idle()
-
-
 
 
 def plot_costs(list_costs, x, y, list_labels=None):
@@ -118,7 +152,9 @@ def plot_costs(list_costs, x, y, list_labels=None):
     ax_.set_ylim(min_y-margin, max_y+margin)
     ax_.legend()
     ax_.set_title("Cost curve")
-    ax_.set_xticks(ticks=[0, list_costs[0].shape[2]], labels=[disparity_range[0], disparity_range[1]])
+
+    x_tick_coordinates = np.array(ax_.get_xticks())
+    ax_.set_xticks(ticks=x_tick_coordinates, labels=(x_tick_coordinates+disparity_range[0]).astype(int))
     return ax_, x_axis, list_costs[0][x, y, :]
 
 
@@ -147,25 +183,35 @@ if __name__ == "__main__":
     left_image = prepare_image(left_image_path, padding)
     right_image = prepare_image(right_image_path, padding)
 
+    """Creating the plot with cost curve graph"""
     plt.figure(figsize=[16., 7.])
     ax_1, x_data, y_data = plot_costs(list_costs, x=X_ref, y=Y_ref)
 
-    # Adding a cursor to the volume curve axis
+    # Adding a cursor to the cost curve axis
     cursor = SnaptoCursor(ax_1, x_data, y_data, X_ref, disparity_range)
-    cid_1 = plt.connect('motion_notify_event', cursor.mouse_move)
+    cid_curve = plt.connect('motion_notify_event', cursor.mouse_move)
 
-    # Adding left and right images
-    ax_2 = plt.subplot(323)
-    ax_3 = plt.subplot(324)
+    """Adding the full Left image"""
+    ax_full_image = plt.subplot(337)
+    full_image = FullImage(ax_full_image, X_ref, Y_ref, left_image, padd=padding, title="Full Left Image")
+    cid_full_image = plt.connect('button_press_event', full_image.update_xy_ref)
 
-    left_image_icon = ImageIcon(ax_2, X_ref, Y_ref, cursor, left_image, disparity_range, padd=padding, title="Left Image")
-    right_image_icon = ImageIcon(ax_3, X_ref, Y_ref, cursor, right_image, disparity_range, padd=padding, title="Right Image")
+    """Adding left and right images"""
+    ax_left = plt.subplot(338)
+    ax_right = plt.subplot(339)
 
-    # Only updating the right image
-    cid_2 = plt.connect('motion_notify_event', right_image_icon.mouse_move)
+    left_image_patch = ImageIcon(ax_left, X_ref, Y_ref, cursor, left_image,
+                                 disparity_range, padd=padding, title="Left patch")
+    right_image_patch = ImageIcon(ax_right, X_ref, Y_ref, cursor, right_image,
+                                  disparity_range, padd=padding, title="Right patch")
 
-    ax_4 = plt.subplot(313)
-    image_band = ImageBand(ax_4, X_ref, Y_ref, cursor, right_image, disparity_range, padd=padding, title="Image on disparity interval")
-    cid_3 = plt.connect('motion_notify_event', image_band.mouse_move)
+    # Only updating the right image patch
+    cid_patch = plt.connect('motion_notify_event', right_image_patch.mouse_move)
+
+    """Adding the right image band"""
+    ax_band = plt.subplot(312)
+    image_band = ImageBand(ax_band, X_ref, Y_ref, cursor, right_image,
+                           disparity_range, padd=padding, title="Right Image on disparity interval")
+    cid_band = plt.connect('motion_notify_event', image_band.mouse_move)
 
     plt.show()
