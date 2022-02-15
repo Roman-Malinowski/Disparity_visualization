@@ -17,8 +17,9 @@ class SnaptoCursor(object):
 
     def mouse_move(self, event):
         if not event.inaxes is self.ax: return
-        x, y = event.xdata, event.ydata
-        indx = np.searchsorted(self.x, [x])[0]
+        # We round xdata for UX
+        x, y = round(event.xdata - 1), event.ydata
+        indx = np.searchsorted(self.x, [x], side='right')[0]
         indx = np.max([0, indx])
         indx = np.min([self.disp_range[1]-self.disp_range[0]-1, indx])
         x = self.x[indx]
