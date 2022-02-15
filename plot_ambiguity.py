@@ -32,11 +32,10 @@ class CostCurveAndCursor(object):
         self.padd = padd
         self.list_labels = list_labels
 
-        self.ly = ax.axvline(color='k', alpha=0.2)  # the vert line
+        self.ly = ax.axvline(color='k', alpha=0.5)  # the vert line
         self.marker, = ax.plot([0], [0], marker="o", color="crimson", zorder=3)
         self.txt = ax.text(0.7, 0.9, '')
         self.plot_costs()
-
 
     def mouse_move(self, event):
         if not event.inaxes is self.ax: return
@@ -63,11 +62,11 @@ class CostCurveAndCursor(object):
             self.ax.plot(self.x_data, cost[self.x_ref, self.y_ref, :], label=label, linestyle="-.")
             min_y = np.nanmin(np.hstack([min_y, cost[self.x_ref, self.y_ref, :]]))
             max_y = np.nanmax(np.hstack([max_y, cost[self.x_ref, self.y_ref, :]]))
-
         margin = 0.05 * (max_y - min_y)
         self.ax.set_ylim(min_y - margin, max_y + margin)
         self.ax.legend()
         self.ax.set_title("Cost curve")
+        self.ax.grid(True, axis='y')
 
         x_tick_coordinates = np.array(self.ax.get_xticks())
         self.ax.set_xticks(ticks=x_tick_coordinates, labels=(x_tick_coordinates + self.disp_range[0]).astype(int))
