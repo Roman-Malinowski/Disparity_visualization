@@ -16,14 +16,16 @@ class SnaptoCursor(object):
         self.x_global = x_ref
 
     def mouse_move(self, event):
-        if not event.inaxes: return
+        if not event.inaxes is self.ax: return
         x, y = event.xdata, event.ydata
         indx = np.searchsorted(self.x, [x])[0]
+        indx = np.max([0, indx])
+        indx = np.min([self.disp_range[1]-self.disp_range[0]-1, indx])
         x = self.x[indx]
         y = self.y[indx]
         self.ly.set_xdata(x)
-        self.marker.set_data([x],[y])
-        self.txt.set_text('x=%1.2f, y=%1.2f' % (indx+disparity_range[0], y))
+        self.marker.set_data([x], [y])
+        self.txt.set_text('Disp=%1.0f, Cost=%1.2f' % (indx+disparity_range[0], y))
         self.txt.set_position((x, y))
         self.ax.figure.canvas.draw_idle()
         self.x_global = x
@@ -40,15 +42,18 @@ class ImageIcon(object):
         self.disp = disp_range
 
         self.ax.set_title(title)
-        self.ax.imshow(self.img[self.x - self.padd[1]: self.x + self.padd[1] + 1,
-                                self.y - self.padd[0]: self.y + self.padd[0] + 1], vmin=0.0, vmax=255.)
+        # The processed image already has some padding, so we need to take that into account
+        self.ax.imshow(self.img[self.x: self.x + 2 * self.padd[1] + 1,
+                                self.y: self.y + 2*self.padd[0] + 1], vmin=0.0, vmax=255.)
         self.ax.set_xticks(ticks=[])
         self.ax.set_yticks(ticks=[])
 
     def mouse_move(self, event):
+        if event.inaxes is not self.cursor.ax: return
         y = self.y + self.disp[0] + self.cursor.x_global
-        self.ax.imshow(self.img[self.x - self.padd[1]: self.x + self.padd[1] + 1,
-                                y - self.padd[0]: y + self.padd[0] + 1], vmin=0.0, vmax=255.)
+        # The processed image already has some padding, so we need to take that into account
+        self.ax.imshow(self.img[self.x: self.x + 2*self.padd[1] + 1,
+                                y: y + 2*self.padd[0] + 1], vmin=0.0, vmax=255.)
         self.ax.figure.canvas.draw_idle()
 
 
@@ -61,8 +66,9 @@ class ImageBand(object):
         self.img = img
         self.padd = padd
         self.disp = disp_range
-        self.img = img[self.x - self.padd[1]: self.x + self.padd[1] + 1,
-                       self.y + self.disp[0]: self.y + self.disp[1] + 1]
+        # The processed image already has some padding, so we need to take that into account
+        self.img = img[self.x: self.x + 2*self.padd[1] + 1,
+                       self.y + self.disp[0]: self.y + self.disp[1] + 2*self.padd[0] + 1]
 
         # Left and right vertical lines
         self.ly = ax.axvline(color='r', alpha=0.8)
@@ -74,10 +80,13 @@ class ImageBand(object):
         self.ax.set_yticks(ticks=[])
 
     def mouse_move(self, event):
-
-        self.ly.set_xdata(self.cursor.x_global - self.padd[0] - 0.5)
-        self.ry.set_xdata(self.cursor.x_global + self.padd[0] + 0.5)
+        if not event.inaxes is self.cursor.ax:return
+        # The processed image already has some padding, so we need to take that into account
+        self.ly.set_xdata(self.cursor.x_global - 0.5)
+        self.ry.set_xdata(self.cursor.x_global + 2*self.padd[0] + 0.5)
         self.ax.figure.canvas.draw_idle()
+
+
 
 
 def plot_costs(list_costs, x, y, list_labels=None):
@@ -120,7 +129,11 @@ def prepare_image(img_path, padd):
 
 
 if __name__ == "__main__":
-    list_costs = [np.load("./cost_volume_w_1.npy"), np.load("./cost_volume_w_2.npy")]
+    list_costs = [np.load("./cost_volume_w_1.npy"),
+                  np.load("./cost_volume_w_2.npy"),
+                  np.load("./cost_volume_w_3.npy"),
+                  np.load("./cost_volume_w_4.npy"),
+                  np.load("./cost_volume_w_5.npy")]
 
     left_image_path = "./left.png"
     right_image_path = "./right.png"
