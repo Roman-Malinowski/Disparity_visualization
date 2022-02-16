@@ -2,11 +2,21 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import cv2 as cv
+import rasterio
+import warnings
+
+
+class Config(object):
+    def __init__(self, disp_range, padd=None):
+        if padd is None:
+            padd = [0, 0]
+        self.disp_range = disp_range
+        self.padd = padd
 
 
 class CostCurveAndCursor(object):
 
-    def __init__(self, ax, list_cost_volume, x_ref, y_ref, disp_range, padd, list_labels=None):
+    def __init__(self, ax, list_cost_volume, x_ref, y_ref, conf, list_labels=None):
         """
         An object to create a cursor attached to a cost volume curve
         Args:
@@ -28,13 +38,12 @@ class CostCurveAndCursor(object):
         # x_cursor is the x cursor position
         self.x_cursor = x_ref
 
-        self.disp_range = disp_range
-        self.padd = padd
+        self.conf = conf
         self.list_labels = list_labels
 
-        self.ly = ax.axvline(color='k', alpha=0.5)  # the vert line
-        self.marker, = ax.plot([0], [0], marker="o", color="crimson", zorder=3)
-        self.txt = ax.text(0.7, 0.9, '')
+        self.ly = self.ax.axvline(color='k', alpha=0.5)  # the vert line
+        self.marker, = self.ax.plot([0], [0], marker="o", color="crimson", zorder=3)
+        self.txt = self.ax.text(0.7, 0.9, '')
         self.plot_costs()
 
     def mouse_move(self, event):
@@ -43,12 +52,12 @@ class CostCurveAndCursor(object):
         x, y = event.xdata, event.ydata
         indx = np.searchsorted(self.x_data, [x], side='right')[0]
         indx = np.max([0, indx])
-        indx = np.min([self.disp_range[1]-self.disp_range[0]-1, indx])
+        indx = np.min([self.conf.disp_range[1]-self.conf.disp_range[0]-1, indx])
         x = self.x_data[indx]
         y = self.y_data[indx]
         self.ly.set_xdata(x)
         self.marker.set_data([x], [y])
-        self.txt.set_text('Disp=%1.0f, Cost=%1.2f' % (indx+disparity_range[0], y))
+        self.txt.set_text('Disp=%1.0f, Cost=%1.2f' % (indx+self.conf.disp_range[0], y))
         self.txt.set_position((x, y))
         self.ax.figure.canvas.draw_idle()
         self.x_cursor = x
@@ -69,12 +78,15 @@ class CostCurveAndCursor(object):
         self.ax.grid(True, axis='y')
 
         x_tick_coordinates = np.array(self.ax.get_xticks())
-        self.ax.set_xticks(ticks=x_tick_coordinates, labels=(x_tick_coordinates + self.disp_range[0]).astype(int))
-        self.ax.set_xlim(self.x_data[0]-self.padd[0], self.x_data[-1]+self.padd[0])
+        self.ax.set_xticks(ticks=x_tick_coordinates, labels=(x_tick_coordinates + self.conf.disp_range[0]).astype(int))
+        self.ax.set_xlim(self.x_data[0]-self.conf.padd[0], self.x_data[-1]+self.conf.padd[0])
+
+    def plot_ground_truth(self, x_gt):
+        self.ax.axvline(color='g', alpha=0.5).set_xdata(x_gt)
 
 
 class FullImage(object):
-    def __init__(self, ax, x, y, img, padd=[0, 0], title=""):
+    def __init__(self, ax, x, y, img, conf, title=""):
         """
         An interactive object to plot a full left image and a small red window on the pixel considered.
         Clicking on the window should update the pixel considered
@@ -90,7 +102,7 @@ class FullImage(object):
         self.x = x
         self.y = y
         self.img = img
-        self.padd = padd
+        self.conf = conf
 
         self.ax.imshow(self.img, vmin=0.0, vmax=255.)
 
@@ -103,24 +115,24 @@ class FullImage(object):
         self.reload_figure = False
 
     def create_rectangle(self):
-        return patches.Rectangle((self.y, self.x), self.padd[0], self.padd[1], color="r")
+        return patches.Rectangle((self.y, self.x), self.conf.padd[0], self.conf.padd[1], color="r")
 
     def update_xy_ref(self, event):
         if event.inaxes is not self.ax: return
         y, x = event.xdata, event.ydata
 
         # Changing the x and y coordinates but not allowing them to be in padding areas
-        x = np.min([self.img.shape[1] - 1 - self.padd[1], x])
-        self.x = np.max([self.padd[1], x])
-        y = np.min([self.img.shape[0] - 1 - self.padd[0], y])
-        self.y = np.max([self.padd[0], y])
+        x = np.min([self.img.shape[0] - 1 - self.conf.padd[0], x])
+        self.x = np.max([self.conf.padd[0], x])
+        y = np.min([self.img.shape[1] - 1 - self.conf.padd[1], y])
+        self.y = np.max([self.conf.padd[1], y])
 
         self.reload_figure = True
         plt.close()
 
 
 class ImageIcon(object):
-    def __init__(self, ax, x, y, curs, img, disp_range, padd=[0, 0], title="", connect=True):
+    def __init__(self, ax, x, y, curs, img, conf, title=""):
         """
         Interactive plot showing a small window around the pixel considered
         Args:
@@ -137,27 +149,26 @@ class ImageIcon(object):
         self.y = y
         self.cursor = curs
         self.img = img
-        self.padd = padd
-        self.disp = disp_range
+        self.conf = conf
 
         # The processed image already has some padding, so we need to take that into account
-        self.ax.imshow(self.img[self.x: self.x + 2 * self.padd[1] + 1,
-                                self.y: self.y + 2*self.padd[0] + 1], vmin=0.0, vmax=255.)
+        self.ax.imshow(self.img[self.x: self.x + 2 * self.conf.padd[1] + 1,
+                                self.y: self.y + 2*self.conf.padd[0] + 1], vmin=0.0, vmax=255.)
         self.ax.set_title(title)
         self.ax.set_xticks(ticks=[])
         self.ax.set_yticks(ticks=[])
 
     def mouse_move(self, event):
         if event.inaxes is not self.cursor.ax: return
-        y = self.y + self.disp[0] + self.cursor.x_cursor
+        y = self.y + self.conf.disp_range[0] + self.cursor.x_cursor
         # The processed image already has some padding, so we need to take that into account
-        self.ax.imshow(self.img[self.x: self.x + 2*self.padd[1] + 1,
-                                y: y + 2*self.padd[0] + 1], vmin=0.0, vmax=255.)
+        self.ax.imshow(self.img[self.x: self.x + 2*self.conf.padd[1] + 1,
+                                y: y + 2*self.conf.padd[0] + 1], vmin=0.0, vmax=255.)
         self.ax.figure.canvas.draw_idle()
 
 
 class ImageBand(object):
-    def __init__(self, ax, x, y, curs, img, disp_range, padd=[0, 0], title=""):
+    def __init__(self, ax, x, y, curs, img, conf, title=""):
         """
         Interactive plot showing all the windows in disparity range considered for the cost volume computation
         Args:
@@ -174,11 +185,10 @@ class ImageBand(object):
         self.y = y
         self.cursor = curs
         self.img = img
-        self.padd = padd
-        self.disp = disp_range
+        self.conf = conf
         # The processed image already has some padding, so we need to take that into account
-        self.img = img[self.x: self.x + 2*self.padd[1] + 1,
-                       self.y + self.disp[0]: self.y + self.disp[1] + 2*self.padd[0] + 1]
+        self.img = img[self.x: self.x + 2*self.conf.padd[1] + 1,
+                       self.y + self.conf.disp_range[0]: self.y + self.conf.disp_range[1] + 2*self.conf.padd[0] + 1]
 
         # Left and right vertical lines
         self.ly = ax.axvline(color='r', alpha=0.8)
@@ -193,8 +203,12 @@ class ImageBand(object):
         if not event.inaxes is self.cursor.ax:return
         # The processed image already has some padding, so we need to take that into account
         self.ly.set_xdata(self.cursor.x_cursor - 0.5)
-        self.ry.set_xdata(self.cursor.x_cursor + 2*self.padd[0] + 0.5)
+        self.ry.set_xdata(self.cursor.x_cursor + 2*self.conf.padd[0] + 0.5)
         self.ax.figure.canvas.draw_idle()
+
+    def plot_ground_truth(self, x_gt):
+        self.ax.axvline(color='g', alpha=0.5).set_xdata(x_gt - 0.5)
+        self.ax.axvline(color='g', alpha=0.5).set_xdata(x_gt + 2*self.conf.padd[0] + 0.5)
 
 
 def prepare_image(img_path, padd):
@@ -205,14 +219,15 @@ def prepare_image(img_path, padd):
 
 
 if __name__ == "__main__":
-    list_costs = [np.load("./cost_volume_w_1.npy"),
-                  np.load("./cost_volume_w_2.npy"),
-                  np.load("./cost_volume_w_3.npy"),
-                  np.load("./cost_volume_w_4.npy"),
-                  np.load("./cost_volume_w_5.npy")]
+    # Data preprocessing. Careful, your data might have different conventions (GT etc...)
+    list_costs = [np.load("../cost_volumes/cost_volume_w_1.npy"),
+                  np.load("../cost_volumes/cost_volume_w_2.npy"),
+                  np.load("../cost_volumes/cost_volume_w_3.npy"),
+                  np.load("../cost_volumes/cost_volume_w_4.npy"),
+                  np.load("../cost_volumes/cost_volume_w_5.npy")]
 
-    left_image_path = "./left.png"
-    right_image_path = "./right.png"
+    left_image_path = "./Cones_LEFT.tif"
+    right_image_path = "./Cones_RIGHT.tif"
 
     disparity_range = [-60, 0]
     padding = [2, 2]
@@ -220,9 +235,17 @@ if __name__ == "__main__":
     left_image = prepare_image(left_image_path, padding)
     right_image = prepare_image(right_image_path, padding)
 
-    Y_ref = left_image.shape[0]//2
-    X_ref = left_image.shape[1]//2
+    X_ref = left_image.shape[0]//2
+    Y_ref = left_image.shape[1]//2
 
+    ground_truth = None  # If you don't have any ground truth to plot, leave to None
+    ground_truth_path = "./Cones_LEFT_GT.tif"
+    warnings.filterwarnings("ignore", category=rasterio.errors.NotGeoreferencedWarning)
+    with rasterio.open(ground_truth_path) as src:
+        ground_truth = src.read(1)
+        ground_truth = - ground_truth  # The ground truth values are defined with a different convention
+
+    # The processing starts here
     continue_loop = True
     while continue_loop:
         fig = plt.figure(figsize=[16., 7.])
@@ -234,19 +257,24 @@ if __name__ == "__main__":
         ax_left = plt.subplot(247)
         ax_right = plt.subplot(248)
 
-
+        config = Config(disparity_range, padding)
         # Adding the full Left image
-        cursor = CostCurveAndCursor(ax_cost, list_costs, X_ref, Y_ref, disparity_range, padd=padding)
+        cursor = CostCurveAndCursor(ax_cost, list_costs, X_ref, Y_ref, conf=config)
         # Adding left and right small patches images
         left_image_patch = ImageIcon(ax_left, X_ref, Y_ref, cursor, left_image,
-                                     disparity_range, padd=padding, title="Left patch", connect=False)
+                                     conf=config , title="Left patch")
         right_image_patch = ImageIcon(ax_right, X_ref, Y_ref, cursor, right_image,
-                                      disparity_range, padd=padding, title="Right patch")
+                                      conf=config, title="Right patch")
 
         # Adding the right image band
         image_band = ImageBand(ax_band, X_ref, Y_ref, cursor, right_image,
-                               disparity_range, padd=padding, title="Right Image on disparity interval")
-        full_image = FullImage(ax_full_image, X_ref, Y_ref, left_image, padd=padding, title="Left Image")
+                               conf=config, title="Right Image on disparity interval")
+        full_image = FullImage(ax_full_image, X_ref, Y_ref, left_image, conf=config, title="Left Image")
+
+        if ground_truth is not None:
+            x_ground_truth = ground_truth[X_ref, Y_ref] - config.disp_range[0]
+            cursor.plot_ground_truth(x_ground_truth)
+            image_band.plot_ground_truth(x_ground_truth)
 
         # Connecting pyplot events to figures
         cid_curve = fig.canvas.mpl_connect('motion_notify_event', cursor.mouse_move)
@@ -256,7 +284,7 @@ if __name__ == "__main__":
 
         plt.show()
 
-        X_ref, Y_ref = round(full_image.x) - full_image.padd[1], round(full_image.y) - full_image.padd[0]
+        X_ref, Y_ref = round(full_image.x) - config.padd[1], round(full_image.y) - config.padd[0]
         continue_loop = full_image.reload_figure
 
 
