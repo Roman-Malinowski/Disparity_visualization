@@ -24,8 +24,7 @@ class CostCurveAndCursor(object):
             list_cost_volume: An array containing the cost volumes for all windows
             x_ref: the x coordinates of the reference point in the left image
             y_ref: the y coordinates of the reference point in the left image
-            disp_range: the disparity range of the cost volume
-            padd: [horizontal padding, vertical padding]
+            conf: the Config object containing the disparity range and padding
             list_labels: a list of labels for the legend of the plot
         """
         self.ax = ax
@@ -47,17 +46,18 @@ class CostCurveAndCursor(object):
         self.plot_costs()
 
     def mouse_move(self, event):
-        if not event.inaxes is self.ax: return
+        if event.inaxes is not self.ax:
+            return
         # We round xdata for UX
         x, y = event.xdata, event.ydata
         indx = np.searchsorted(self.x_data, [x], side='right')[0]
         indx = np.max([0, indx])
-        indx = np.min([self.conf.disp_range[1]-self.conf.disp_range[0]-1, indx])
+        indx = np.min([self.conf.disp_range[1] - self.conf.disp_range[0] - 1, indx])
         x = self.x_data[indx]
         y = self.y_data[indx]
         self.ly.set_xdata(x)
         self.marker.set_data([x], [y])
-        self.txt.set_text('Disp=%1.0f, Cost=%1.2f' % (indx+self.conf.disp_range[0], y))
+        self.txt.set_text('Disp=%1.0f, Cost=%1.2f' % (indx + self.conf.disp_range[0], y))
         self.txt.set_position((x, y))
         self.ax.figure.canvas.draw_idle()
         self.x_cursor = x
@@ -79,7 +79,7 @@ class CostCurveAndCursor(object):
 
         x_tick_coordinates = np.array(self.ax.get_xticks())
         self.ax.set_xticks(ticks=x_tick_coordinates, labels=(x_tick_coordinates + self.conf.disp_range[0]).astype(int))
-        self.ax.set_xlim(self.x_data[0]-self.conf.padd[0], self.x_data[-1]+self.conf.padd[0])
+        self.ax.set_xlim(self.x_data[0] - self.conf.padd[0], self.x_data[-1] + self.conf.padd[0])
 
     def plot_ground_truth(self, x_gt):
         self.ax.axvline(color='g', alpha=0.5).set_xdata(x_gt)
@@ -95,7 +95,7 @@ class FullImage(object):
             x: the x coordinate of the pixel in the image (rows). CAREFUL: it has nothing to do with x_data !
             y: the y coordinate of the pixel in the image (column). CAREFUL: it should correspond to X_ref
             img: the left image with padding (cv2 greyscale image)
-            padd: the padding of the image
+            conf: the Config object containing the disparity range and padding
             title: the title of the subplot
         """
         self.ax = ax
@@ -118,7 +118,8 @@ class FullImage(object):
         return patches.Rectangle((self.y, self.x), self.conf.padd[0], self.conf.padd[1], color="r")
 
     def update_xy_ref(self, event):
-        if event.inaxes is not self.ax: return
+        if event.inaxes is not self.ax:
+            return
         y, x = event.xdata, event.ydata
 
         # Changing the x and y coordinates but not allowing them to be in padding areas
@@ -141,7 +142,7 @@ class ImageIcon(object):
             y: the y coordinate of the pixel in the image (column). CAREFUL: it should correspond to X_ref
             curs: the cursor object to update X_ref
             img: the left image with padding (cv2 greyscale image)
-            padd: the padding of the image
+            conf: the Config object containing the disparity range and padding
             title: the title of the subplot
         """
         self.ax = ax
@@ -153,17 +154,18 @@ class ImageIcon(object):
 
         # The processed image already has some padding, so we need to take that into account
         self.ax.imshow(self.img[self.x: self.x + 2 * self.conf.padd[1] + 1,
-                                self.y: self.y + 2*self.conf.padd[0] + 1], vmin=0.0, vmax=255.)
+                       self.y: self.y + 2 * self.conf.padd[0] + 1], vmin=0.0, vmax=255.)
         self.ax.set_title(title)
         self.ax.set_xticks(ticks=[])
         self.ax.set_yticks(ticks=[])
 
     def mouse_move(self, event):
-        if event.inaxes is not self.cursor.ax: return
+        if event.inaxes is not self.cursor.ax:
+            return
         y = self.y + self.conf.disp_range[0] + self.cursor.x_cursor
         # The processed image already has some padding, so we need to take that into account
-        self.ax.imshow(self.img[self.x: self.x + 2*self.conf.padd[1] + 1,
-                                y: y + 2*self.conf.padd[0] + 1], vmin=0.0, vmax=255.)
+        self.ax.imshow(self.img[self.x: self.x + 2 * self.conf.padd[1] + 1,
+                       y: y + 2 * self.conf.padd[0] + 1], vmin=0.0, vmax=255.)
         self.ax.figure.canvas.draw_idle()
 
 
@@ -177,7 +179,7 @@ class ImageBand(object):
             y: the y coordinate of the pixel in the image (column). CAREFUL: it should correspond to X_ref
             curs: the cursor object to update X_ref
             img: the left image with padding (cv2 greyscale image)
-            padd: the padding of the image
+            conf: the Config object containing the disparity range and padding
             title: the title of the subplot
         """
         self.ax = ax
@@ -187,8 +189,8 @@ class ImageBand(object):
         self.img = img
         self.conf = conf
         # The processed image already has some padding, so we need to take that into account
-        self.img = img[self.x: self.x + 2*self.conf.padd[1] + 1,
-                       self.y + self.conf.disp_range[0]: self.y + self.conf.disp_range[1] + 2*self.conf.padd[0] + 1]
+        self.img = img[self.x: self.x + 2 * self.conf.padd[1] + 1,
+                   self.y + self.conf.disp_range[0]: self.y + self.conf.disp_range[1] + 2 * self.conf.padd[0] + 1]
 
         # Left and right vertical lines
         self.ly = ax.axvline(color='r', alpha=0.8)
@@ -200,15 +202,16 @@ class ImageBand(object):
         self.ax.set_title(title)
 
     def mouse_move(self, event):
-        if not event.inaxes is self.cursor.ax:return
+        if event.inaxes is not self.cursor.ax:
+            return
         # The processed image already has some padding, so we need to take that into account
         self.ly.set_xdata(self.cursor.x_cursor - 0.5)
-        self.ry.set_xdata(self.cursor.x_cursor + 2*self.conf.padd[0] + 0.5)
+        self.ry.set_xdata(self.cursor.x_cursor + 2 * self.conf.padd[0] + 0.5)
         self.ax.figure.canvas.draw_idle()
 
     def plot_ground_truth(self, x_gt):
         self.ax.axvline(color='g', alpha=0.5).set_xdata(x_gt - 0.5)
-        self.ax.axvline(color='g', alpha=0.5).set_xdata(x_gt + 2*self.conf.padd[0] + 0.5)
+        self.ax.axvline(color='g', alpha=0.5).set_xdata(x_gt + 2 * self.conf.padd[0] + 0.5)
 
 
 def prepare_image(img_path, padd):
@@ -235,15 +238,19 @@ if __name__ == "__main__":
     left_image = prepare_image(left_image_path, padding)
     right_image = prepare_image(right_image_path, padding)
 
-    X_ref = left_image.shape[0]//2
-    Y_ref = left_image.shape[1]//2
+    X_ref = left_image.shape[0] // 2
+    Y_ref = left_image.shape[1] // 2
 
-    ground_truth = None  # If you don't have any ground truth to plot, leave to None
     ground_truth_path = "./Cones_LEFT_GT.tif"
     warnings.filterwarnings("ignore", category=rasterio.errors.NotGeoreferencedWarning)
-    with rasterio.open(ground_truth_path) as src:
-        ground_truth = src.read(1)
-        ground_truth = - ground_truth  # The ground truth values are defined with a different convention
+    try:
+        with rasterio.open(ground_truth_path) as src:
+            ground_truth = src.read(1)
+            ground_truth = - ground_truth  # The ground truth values are defined with a different convention
+    except rasterio.errors.RasterioIOError as e:
+        print(e)
+        print("\nNot including ground truth!\n")
+        ground_truth = None  # If you don't have any ground truth to plot, leave to None
 
     # The processing starts here
     continue_loop = True
@@ -262,7 +269,7 @@ if __name__ == "__main__":
         cursor = CostCurveAndCursor(ax_cost, list_costs, X_ref, Y_ref, conf=config)
         # Adding left and right small patches images
         left_image_patch = ImageIcon(ax_left, X_ref, Y_ref, cursor, left_image,
-                                     conf=config , title="Left patch")
+                                     conf=config, title="Left patch")
         right_image_patch = ImageIcon(ax_right, X_ref, Y_ref, cursor, right_image,
                                       conf=config, title="Right patch")
 
@@ -286,5 +293,3 @@ if __name__ == "__main__":
 
         X_ref, Y_ref = round(full_image.x) - config.padd[1], round(full_image.y) - config.padd[0]
         continue_loop = full_image.reload_figure
-
-
