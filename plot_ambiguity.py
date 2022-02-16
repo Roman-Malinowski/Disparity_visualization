@@ -224,10 +224,7 @@ def prepare_image(img_path, padd):
 if __name__ == "__main__":
     # Data preprocessing. Careful, your data might have different conventions (GT etc...)
     list_costs = [np.load("../cost_volumes/cost_volume_w_1.npy"),
-                  np.load("../cost_volumes/cost_volume_w_2.npy"),
-                  np.load("../cost_volumes/cost_volume_w_3.npy"),
-                  np.load("../cost_volumes/cost_volume_w_4.npy"),
-                  np.load("../cost_volumes/cost_volume_w_5.npy")]
+                  np.load("../cost_volumes/cost_volume_w_2.npy")]
 
     left_image_path = "./Cones_LEFT.tif"
     right_image_path = "./Cones_RIGHT.tif"
