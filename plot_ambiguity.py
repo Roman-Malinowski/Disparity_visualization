@@ -16,23 +16,23 @@ class Config(object):
 
 class CostCurveAndCursor(object):
 
-    def __init__(self, ax, list_cost_volume, x_ref, y_ref, conf, list_labels=None):
+    def __init__(self, ax, all_cost_volume, x_ref, y_ref, conf, list_labels=None, plot_ambiguity=False):
         """
         An object to create a cursor attached to a cost volume curve
         Args:
             ax: the pyplot Axis object on witch the cursor appears
-            list_cost_volume: An array containing the cost volumes for all windows
+            all_cost_volume: An array containing the cost volumes for all windows
             x_ref: the x coordinates of the reference point in the left image
             y_ref: the y coordinates of the reference point in the left image
             conf: the Config object containing the disparity range and padding
             list_labels: a list of labels for the legend of the plot
         """
         self.ax = ax
-        self.list_cost_volume = list_cost_volume
+        self.all_cost_volume = all_cost_volume
         self.x_ref = x_ref
         self.y_ref = y_ref
 
-        self.x_data = np.arange(0, list_cost_volume[0].shape[2])
+        self.x_data = np.arange(0, all_cost_volume[0].shape[2])
         self.y_data = list_costs[0][x_ref, y_ref, :]
         # x_cursor is the x cursor position
         self.x_cursor = x_ref
@@ -43,7 +43,10 @@ class CostCurveAndCursor(object):
         self.ly = self.ax.axvline(color='k', alpha=0.5)  # the vert line
         self.marker, = self.ax.plot([0], [0], marker="o", color="crimson", zorder=3)
         self.txt = self.ax.text(0.7, 0.9, '')
-        self.plot_costs()
+        if plot_ambiguity:
+            self.plot_ambiguity()
+        else:
+            self.plot_costs()
 
     def mouse_move(self, event):
         if event.inaxes is not self.ax:
@@ -57,7 +60,7 @@ class CostCurveAndCursor(object):
         y = self.y_data[indx]
         self.ly.set_xdata(x)
         self.marker.set_data([x], [y])
-        self.txt.set_text('Disp=%1.0f, Cost=%1.2f' % (indx + self.conf.disp_range[0], y))
+        self.txt.set_text('Disp=%1.0f, Cost=%1.3f' % (indx + self.conf.disp_range[0], y))
         self.txt.set_position((x, y))
         self.ax.figure.canvas.draw_idle()
         self.x_cursor = x
@@ -67,12 +70,35 @@ class CostCurveAndCursor(object):
             self.list_labels = ["window %s" % i for i in np.arange(1, len(list_costs) + 1)]
 
         min_y = max_y = np.nan
-        for cost, label in zip(self.list_cost_volume, self.list_labels):
+        for cost, label in zip(self.all_cost_volume, self.list_labels):
             self.ax.plot(self.x_data, cost[self.x_ref, self.y_ref, :], label=label, linestyle="-.")
             min_y = np.nanmin(np.hstack([min_y, cost[self.x_ref, self.y_ref, :]]))
             max_y = np.nanmax(np.hstack([max_y, cost[self.x_ref, self.y_ref, :]]))
         margin = 0.05 * (max_y - min_y)
         self.ax.set_ylim(min_y - margin, max_y + margin)
+        self.ax.legend()
+        self.ax.set_title("Cost curve")
+        self.ax.grid(True, axis='y')
+
+        x_tick_coordinates = np.array(self.ax.get_xticks())
+        self.ax.set_xticks(ticks=x_tick_coordinates, labels=(x_tick_coordinates + self.conf.disp_range[0]).astype(int))
+        self.ax.set_xlim(self.x_data[0] - self.conf.padd[0], self.x_data[-1] + self.conf.padd[0])
+
+    def plot_ambiguity(self):
+        mean_array = np.nanmean(self.all_cost_volume[:, self.x_ref, self.y_ref, :], axis=0)
+        std_array = np.nanstd(self.all_cost_volume[:, self.x_ref, self.y_ref, :], axis=0)
+        min_array = np.nanmin(self.all_cost_volume[:, self.x_ref, self.y_ref, :], axis=0)
+        max_array = np.nanmax(self.all_cost_volume[:, self.x_ref, self.y_ref, :], axis=0)
+
+        self.ax.plot(self.x_data, mean_array, label="Mean", linestyle="-", color="b")
+        self.ax.plot(self.x_data, mean_array - std_array, label="std", linestyle="-.", color="r")
+        self.ax.plot(self.x_data, mean_array + std_array, linestyle="-.", color="r")
+
+        self.ax.plot(self.x_data, min_array, label="min", linestyle=":", color="orange")
+        self.ax.plot(self.x_data, max_array, label="max", linestyle=":", color="orange")
+
+        margin = 0.05 * (np.nanmax(max_array) - np.nanmin(min_array))
+        self.ax.set_ylim(np.nanmin(min_array) - margin, np.nanmax(max_array) + margin)
         self.ax.legend()
         self.ax.set_title("Cost curve")
         self.ax.grid(True, axis='y')
@@ -223,8 +249,11 @@ def prepare_image(img_path, padd):
 
 if __name__ == "__main__":
     # Data preprocessing. Careful, your data might have different conventions (GT etc...)
-    list_costs = [np.load("../cost_volumes/cost_volume_w_1.npy"),
-                  np.load("../cost_volumes/cost_volume_w_2.npy")]
+    list_costs = np.array([np.load("../cost_volumes/cost_volume_w_1.npy"),
+                           np.load("../cost_volumes/cost_volume_w_2.npy"),
+                           np.load("../cost_volumes/cost_volume_w_3.npy"),
+                           np.load("../cost_volumes/cost_volume_w_4.npy"),
+                           np.load("../cost_volumes/cost_volume_w_5.npy")])
 
     left_image_path = "./Cones_LEFT.tif"
     right_image_path = "./Cones_RIGHT.tif"
@@ -263,7 +292,7 @@ if __name__ == "__main__":
 
         config = Config(disparity_range, padding)
         # Adding the full Left image
-        cursor = CostCurveAndCursor(ax_cost, list_costs, X_ref, Y_ref, conf=config)
+        cursor = CostCurveAndCursor(ax_cost, list_costs, X_ref, Y_ref, conf=config, plot_ambiguity=True)
         # Adding left and right small patches images
         left_image_patch = ImageIcon(ax_left, X_ref, Y_ref, cursor, left_image,
                                      conf=config, title="Left patch")
